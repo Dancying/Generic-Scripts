@@ -94,7 +94,7 @@
 2. 查找以下配置项并修改为如下值：  
     ```sh
     ...
-    Port 12345                      # 更改 SSH 默认端口
+    Port 21598                      # 更改 SSH 默认端口
     ...
     PubkeyAuthentication yes        # 启用密钥登录
     ...
@@ -127,7 +127,7 @@
     ```
 4. 放行 SSH 端口：  
     ```sh
-    ufw allow 12345/tcp
+    ufw allow 21598/tcp
     ```
 5. 激活 UFW 规则：  
     ```sh
@@ -145,4 +145,32 @@
     ```sh
     ufw status verbose
     ```
+
+
+## 可选安装 (Optional Installation)
+
+- 安装 sudo ：  
+    ```sh
+    apt install sudo
+    ```
+
+- 安装 Nginx ：  
+    ```sh
+    apt install nginx
+    ```
+
+- 安装 htop ：  
+    ```sh
+    apt install htop
+    ```
+
+- 安装 podman ：  
+    ```sh
+    apt install podman
+    ```
+
+
+## 镜像源 (Mirror Source)
+
+MirrorZ Help : <https://help.mirror.nju.edu.cn/>  
 
