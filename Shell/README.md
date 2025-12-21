@@ -147,6 +147,28 @@
     ```
 
 
+## 网络代理
+
+1. 编辑环境变量配置文件：  
+    ```sh
+    vi /etc/profile
+    ```
+2. 文件末尾添加代理配置：  
+    ```sh
+    # Proxy Settings
+    export ftp_proxy="http://127.0.0.1:7890"        # 修改为实际代理地址
+    export http_proxy="http://127.0.0.1:7890"       # 修改为实际代理地址
+    export https_proxy="http://127.0.0.1:7890"      # 修改为实际代理地址
+
+    # 绕过局域网和本地地址 (no_proxy)
+    export no_proxy="localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,*.local"
+    ```
+3. 立即生效配置：  
+    ```sh
+    source /etc/profile
+    ```
+
+
 ## 可选安装 (Optional Installation)
 
 - 安装 sudo ：  
@@ -154,9 +176,14 @@
     apt install sudo
     ```
 
-- 安装 Nginx ：  
+- 安装 nginx ：  
     ```sh
     apt install nginx
+    ```
+
+- 安装 curl ：  
+    ```sh
+    apt install curl
     ```
 
 - 安装 htop ：  
