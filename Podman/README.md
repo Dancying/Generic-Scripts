@@ -62,6 +62,7 @@
     podman run -d --name my-web -p 8080:80 nginx
     ```
     - 参数 `-d` : 后台运行容器  
+    - 参数 `--name` : 设置容器名称  
     - 参数 `-p` : 映射端口（主机端口:容器端口）  
 
 - 列出所有容器（已创建、已退出、正在运行等）：  
@@ -190,10 +191,6 @@
     # 这能有效解决挂载卷后的权限拒绝问题
     UserNS=keep-id
 
-    # 资源限制
-    Memory=512M
-    CPUWeight=100
-
     # 环境变量
     Environment=TZ=Asia/Shanghai
 
@@ -210,6 +207,9 @@
     Restart=always
     # 停止容器的超时时间
     TimeoutStopSec=30
+
+    # 资源限制
+    MemoryMax=256M
 
     [Install]
     # 允许随系统或用户登录自动启动
@@ -231,9 +231,9 @@
     systemctl --user status my-web.service
     ```
 
-- 设置 Linger 状态（Rootless 模式）：  
+- 设置 Linger 状态 (Rootless 模式) ：  
     ```sh
-    # 允许特定用户在没有登录时也运行进程
+    # 允许普通用户在没有登录时也能运行进程
     loginctl enable-linger <用户名>
     ```
 
