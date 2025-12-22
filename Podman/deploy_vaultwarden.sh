@@ -2,76 +2,82 @@
 
 # --- Configuration ---
 VW_PORT=22929
+VW_MEM_LIMIT="512M"
 CURRENT_USER=$(whoami)
 QUADLET_DIR="$HOME/.config/containers/systemd"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 VW_IMAGE="ghcr.io/dani-garcia/vaultwarden:latest"
-REQUIRED_VERSION="4.4.0"
+QUADLET_MIN_VERSION="4.4.0"
 
 # ANSI Color Codes
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# 1. Environment & Privilege Check
+# 1. Privilege Check
 if [ "$EUID" -eq 0 ]; then
-    echo -e "${RED}Error: This script must be run as a non-root user.${NC}"
+    echo -e "${RED}Error: Run as non-root user.${NC}"
     exit 1
 fi
 
-# 2. Quadlet Support Check
+# 2. Deployment Mode Selection
 PODMAN_VERSION=$(podman version --format '{{.Client.Version}}')
-if [ "$(printf '%s\n%s' "$REQUIRED_VERSION" "$PODMAN_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    echo -e "${RED}Error: Podman version ($PODMAN_VERSION) < $REQUIRED_VERSION. Quadlet is not supported.${NC}"
-    exit 1
+if [ "$(printf '%s\n%s' "$QUADLET_MIN_VERSION" "$PODMAN_VERSION" | sort -V | head -n1)" == "$QUADLET_MIN_VERSION" ]; then
+    DEPLOY_MODE="QUADLET"
+    echo -e "${GREEN}Mode: Quadlet (Podman $PODMAN_VERSION)${NC}"
+else
+    DEPLOY_MODE="LEGACY"
+    echo -e "${YELLOW}Mode: Legacy Service (Podman $PODMAN_VERSION)${NC}"
 fi
 
-# 3. Argon2 Dependency Check
+# 3. Dependency Check (Argon2 for security)
 if ! command -v argon2 &> /dev/null; then
-    echo -e "${RED}Error: 'argon2' is not installed.${NC}"
-    echo -e "${YELLOW}Please install it using: sudo apt update && sudo apt install argon2${NC}"
+    echo -e "${RED}Error: 'argon2' command not found. Install it first.${NC}"
     exit 1
 fi
 
-# 4. Pull Container Image
-echo -e "${CYAN}Step 1: Pulling latest Vaultwarden image...${NC}"
+# 4. Pull Image
+echo -e "${CYAN}Step 1: Pulling image...${NC}"
 podman pull "$VW_IMAGE"
 
-# 5. Named Volume Management
+# 5. Volume Management
 if ! podman volume exists vaultwarden; then
-    echo -e "${CYAN}Step 2: Creating persistent volume 'vaultwarden'...${NC}"
+    echo -e "${CYAN}Step 2: Creating volume 'vaultwarden'...${NC}"
     podman volume create vaultwarden
 else
-    echo -e "${GREEN}Info: Volume 'vaultwarden' already exists.${NC}"
+    echo -e "${GREEN}Info: Volume 'vaultwarden' exists.${NC}"
 fi
 
 # 6. Admin Token Generation
 echo -e "${CYAN}Step 3: Configuring Admin Token...${NC}"
-read -rs -p "Enter Vaultwarden admin panel password: " ADMIN_PASS
+read -rs -p "Enter Vaultwarden admin password: " ADMIN_PASS
 echo
-read -rs -p "Confirm admin panel password: " ADMIN_PASS_CONFIRM
+read -rs -p "Confirm admin password: " ADMIN_PASS_CONFIRM
 echo
 
 if [ "$ADMIN_PASS" != "$ADMIN_PASS_CONFIRM" ]; then
-    echo -e "${RED}Error: Passwords do not match. Exiting.${NC}"
+    echo -e "${RED}Error: Passwords do not match.${NC}"
     exit 1
 fi
 
-# Generate Argon2 hash and escape '$' for Systemd (requires '$$')
+# Hash password and escape $ for systemd
 RAW_HASH=$(echo -n "$ADMIN_PASS" | argon2 "$(openssl rand -base64 32)" -e -id -k 65540 -t 3 -p 4)
 ESCAPED_HASH=$(echo "$RAW_HASH" | sed 's/\$/\$\$/g')
 
-# 7. Generate Quadlet File
-echo -e "${CYAN}Step 4: Generating Quadlet configuration...${NC}"
-mkdir -p "$QUADLET_DIR"
+# 7. File Generation
+echo -e "${CYAN}Step 4: Generating config files...${NC}"
 
-cat <<EOF > "$QUADLET_DIR/vaultwarden.container"
+if [ "$DEPLOY_MODE" == "QUADLET" ]; then
+    echo -e "Creating Quadlet file: $QUADLET_DIR/vaultwarden.container"
+    mkdir -p "$QUADLET_DIR"
+    cat <<EOF > "$QUADLET_DIR/vaultwarden.container"
 [Unit]
-Description=Vaultwarden Password Manager (Quadlet)
-After=network-online.target
+Description=Vaultwarden Service (Quadlet)
 
 [Container]
+ContainerName=vaultwarden
 Image=$VW_IMAGE
 Volume=vaultwarden:/data:Z
 PublishPort=$VW_PORT:$VW_PORT
@@ -81,47 +87,77 @@ Annotation=io.containers.autoupdate=registry
 
 [Service]
 Restart=always
-MemoryMax=512M
+MemoryMax=$VW_MEM_LIMIT
 
 [Install]
 WantedBy=default.target
 EOF
+else
+    echo -e "Creating Service file: $SYSTEMD_USER_DIR/vaultwarden.service"
+    mkdir -p "$SYSTEMD_USER_DIR"
+    podman rm -f vaultwarden &>/dev/null || true
 
-# 8. Systemd Reload & Service Restart
-echo -e "${CYAN}Step 5: Reloading systemd and restarting service...${NC}"
-systemctl --user daemon-reload
+    cat <<EOF > "$SYSTEMD_USER_DIR/vaultwarden.service"
+[Unit]
+Description=Vaultwarden Service (Legacy)
+
+[Service]
+Restart=always
+ExecStartPre=-/usr/bin/podman stop vaultwarden
+ExecStartPre=-/usr/bin/podman rm -f vaultwarden
+ExecStart=/usr/bin/podman run --name vaultwarden \\
+    -v vaultwarden:/data:Z \\
+    -p $VW_PORT:$VW_PORT \\
+    -e ROCKET_PORT=$VW_PORT \\
+    -e ADMIN_TOKEN=$ESCAPED_HASH \\
+    --label "io.containers.autoupdate=registry" \\
+    --memory=$VW_MEM_LIMIT \\
+    $VW_IMAGE
+ExecStop=/usr/bin/podman stop vaultwarden
+ExecStopPost=/usr/bin/podman rm -f vaultwarden
+Type=simple
+
+[Install]
+WantedBy=default.target
+EOF
+fi
+
+# 8. Systemd Reload & Start
+echo -e "${CYAN}Step 5: Reloading systemd and starting service...${NC}"
+
+if ! systemctl --user daemon-reload; then
+    echo -e "${RED}Error: systemctl daemon-reload failed.${NC}"
+    exit 1
+fi
+
+if [ "$DEPLOY_MODE" == "LEGACY" ]; then
+    systemctl --user enable vaultwarden.service
+fi
 
 systemctl --user restart vaultwarden.service &
 pid=$! 
 spin='-\|/'
-echo -n "Waiting for service to stabilize... "
+echo -n "Starting Vaultwarden... "
 while kill -0 $pid 2>/dev/null; do
     i=$(( (i+1) % 4 ))
-    printf "\rWaiting for service to stabilize... ${spin:$i:1}"
+    printf "\rStarting Vaultwarden... ${spin:$i:1}"
     sleep 0.1
 done
-printf "\r${GREEN}Service stabilized!                     ${NC}\n"
+printf "\r${GREEN}Service command executed!${NC}\n"
 
-# 9. Check Linger Status
-LINGER_STATUS=$(ls /var/lib/systemd/linger/"$CURRENT_USER" 2>/dev/null)
-
-# 10. Deployment Summary
+# 9. Deployment Summary
 echo -e "\n${GREEN}===================================================${NC}"
 if systemctl --user is-active --quiet vaultwarden.service; then
-    echo -e "${GREEN}SUCCESS: Vaultwarden deployment is complete!${NC}"
+    echo -e "${GREEN}SUCCESS: Vaultwarden is running!${NC}"
     echo -e "${YELLOW}URL: http://$(hostname -I | awk '{print $1}'):$VW_PORT${NC}"
-    echo -e "${YELLOW}Admin Panel: http://$(hostname -I | awk '{print $1}'):$VW_PORT/admin${NC}"
-    echo -e "\n${CYAN}NOTICE: HTTPS is required for Vaultwarden to function correctly.${NC}"
-    echo -e "${CYAN}Please configure an Nginx Reverse Proxy with an SSL certificate.${NC}"
+    echo -e "${YELLOW}Admin: http://$(hostname -I | awk '{print $1}'):$VW_PORT/admin${NC}"
 else
     echo -e "${RED}FAILURE: Service failed to start.${NC}"
-    echo -e "Check logs with: journalctl --user -u vaultwarden.service"
+    journalctl --user -u vaultwarden.service --no-pager -n 20
 fi
 echo -e "${GREEN}===================================================${NC}"
 
-if [ -z "$LINGER_STATUS" ]; then
-    echo -e "${YELLOW}WARNING: User Linger is NOT enabled.${NC}"
-    echo -e "To keep the container running after logout, run:"
-    echo -e "  ${CYAN}sudo loginctl enable-linger $CURRENT_USER${NC}"
-    echo -e "${GREEN}===================================================${NC}"
+# Linger Check
+if [ ! -f /var/lib/systemd/linger/"$CURRENT_USER" ]; then
+    echo -e "${YELLOW}Notice: Run 'sudo loginctl enable-linger $CURRENT_USER' for persistence.${NC}"
 fi
