@@ -1,6 +1,6 @@
-# Shell Cheatsheet
+# System Configuration
 
-适用于 Debian 系统的 Shell 命令速查表。  
+适用于 Debian 系统初始化配置的命令速查表。  
 
 
 ## 创建命令别名 (Custom Aliases)
@@ -66,23 +66,24 @@
 
 ## 配置密钥登录 (SSH Key-Based Login)
 
-1. 生成 Ed25519 密钥:  
-    ```sh
-    ssh-keygen -t ed25519
-    ```
-2. 创建 `.ssh` 文件夹：  
+1. 创建 `.ssh` 文件夹：  
     ```sh
     mkdir -p ~/.ssh
     ```
-3. 创建并编辑 `authorized_keys` 文件：  
+2. 创建并编辑 `authorized_keys` 文件：  
     ```sh
     vi ~/.ssh/authorized_keys
     ```
-    > 需要粘贴 `.pub` 文件中的内容  
-4. 修改 `.ssh` 文件夹权限：  
+    > 粘贴 `.pub` 文件中的内容  
+3. 修改 `.ssh` 文件夹权限：  
     ```sh
     chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
     ```
+
+> 生成 Ed25519 密钥的命令：  
+> ```sh
+> ssh-keygen -t ed25519
+> ```
 
 
 ## 修改 SSH 登录 (Disable Password Login)
